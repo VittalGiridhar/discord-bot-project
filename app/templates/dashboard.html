@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Dashboard</title>
+</head>
+<body>
+  <h1>Discord Bot Dashboard</h1>
+  <p><a href="/logout">Log out</a></p>
+
+  <h2>Server Configuration</h2>
+  <form method="post" action="/dashboard/settings">
+    <label>Guild ID:
+      <input type="text" name="guild_id" value="{{ config.guild_id if config else '' }}" required>
+    </label><br><br>
+    <label>Reply Channel ID:
+      <input type="text" name="reply_channel_id" value="{{ config.reply_channel_id if config else '' }}" required>
+    </label><br><br>
+    <label>Mirror Webhook URL:
+      <input type="text" name="mirror_webhook_url" size="60" value="{{ config.mirror_webhook_url if config else '' }}" required>
+    </label><br><br>
+    <button type="submit">Save</button>
+  </form>
+
+  <h2>Command Log</h2>
+  <table border="1" cellpadding="5" cellspacing="0">
+    <tr>
+      <th>Time (UTC)</th>
+      <th>Command</th>
+      <th>User</th>
+      <th>Input</th>
+      <th>Action</th>
+      <th>Status</th>
+    </tr>
+    {% for log in logs %}
+    <tr>
+      <td>{{ log.created_at }}</td>
+      <td>/{{ log.command_name }}</td>
+      <td>{{ log.discord_user }}</td>
+      <td>{{ log.input_text }}</td>
+      <td>{{ log.action_taken }}</td>
+      <td>{{ log.status }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>

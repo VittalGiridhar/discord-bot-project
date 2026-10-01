@@ -1,12 +1,15 @@
 import os
 
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, Header, HTTPException, Request
+from fastapi.responses import RedirectResponse
+from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
+from app.auth import ADMIN_PASSWORD, ADMIN_USERNAME, COOKIE_NAME, create_session_cookie, get_current_user
 from app.db import get_session, init_db
 from app.discord_client import mirror_and_record_status
-from app.models import CommandLog
+from app.models import CommandLog, ServerConfig
 from app.verify import verify_signature
 
 load_dotenv()
@@ -15,6 +18,7 @@ PUBLIC_KEY = os.environ["DISCORD_PUBLIC_KEY"]
 MIRROR_WEBHOOK_URL = os.environ["MIRROR_WEBHOOK_URL"]
 
 app = FastAPI()
+templates = Jinja2Templates(directory="app/templates")
 
 PING = 1
 APPLICATION_COMMAND = 2
@@ -31,6 +35,68 @@ def on_startup():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/login")
+def login_form(request: Request):
+    return templates.TemplateResponse(request, "login.html", {"error": None})
+
+
+@app.post("/login")
+def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
+    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        response = RedirectResponse("/dashboard", status_code=302)
+        response.set_cookie(
+            COOKIE_NAME, create_session_cookie(username), httponly=True, max_age=86400
+        )
+        return response
+    return templates.TemplateResponse(
+        request, "login.html", {"error": "Invalid credentials"}, status_code=401
+    )
+
+
+@app.get("/logout")
+def logout():
+    response = RedirectResponse("/login", status_code=302)
+    response.delete_cookie(COOKIE_NAME)
+    return response
+
+
+@app.get("/dashboard")
+def dashboard(request: Request, session: Session = Depends(get_session)):
+    if not get_current_user(request):
+        return RedirectResponse("/login", status_code=302)
+    logs = session.exec(select(CommandLog).order_by(CommandLog.created_at.desc())).all()
+    config = session.exec(select(ServerConfig)).first()
+    return templates.TemplateResponse(
+        request, "dashboard.html", {"logs": logs, "config": config}
+    )
+
+
+@app.post("/dashboard/settings")
+def update_settings(
+    request: Request,
+    guild_id: str = Form(...),
+    reply_channel_id: str = Form(...),
+    mirror_webhook_url: str = Form(...),
+    session: Session = Depends(get_session),
+):
+    if not get_current_user(request):
+        return RedirectResponse("/login", status_code=302)
+    config = session.exec(select(ServerConfig)).first()
+    if config:
+        config.guild_id = guild_id
+        config.reply_channel_id = reply_channel_id
+        config.mirror_webhook_url = mirror_webhook_url
+    else:
+        config = ServerConfig(
+            guild_id=guild_id,
+            reply_channel_id=reply_channel_id,
+            mirror_webhook_url=mirror_webhook_url,
+        )
+    session.add(config)
+    session.commit()
+    return RedirectResponse("/dashboard", status_code=302)
 
 
 @app.post("/interactions")
@@ -88,9 +154,12 @@ async def interactions(
         session.add(log)
         session.commit()
 
+        config = session.exec(select(ServerConfig)).first()
+        mirror_url = config.mirror_webhook_url if config else MIRROR_WEBHOOK_URL
+
         mirror_message = f"**/{command_name}** by {discord_user}: {content}"
         background_tasks.add_task(
-            mirror_and_record_status, interaction_id, MIRROR_WEBHOOK_URL, mirror_message
+            mirror_and_record_status, interaction_id, mirror_url, mirror_message
         )
 
         return {
