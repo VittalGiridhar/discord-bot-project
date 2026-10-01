@@ -74,3 +74,14 @@ Database: a free [Neon](https://neon.tech) Postgres project. Tables are created 
 1. Go to `/login` and sign in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`
 2. On `/dashboard`, fill in the Guild ID, Reply Channel ID, and Mirror Webhook URL for your Discord server, click Save
 3. The command log table below shows every interaction received, with status (`ok` or `mirror_failed`)
+
+## Testing this submission
+
+- **Live app:** https://discord-bot-project-xa1w.onrender.com
+- **Test Discord server invite:** https://discord.gg/cKHGcS2ew — join this server to see the bot and the mirror notification channel (`#mirror-log`) directly
+- **Admin dashboard login:** https://discord-bot-project-xa1w.onrender.com/login
+  - Username: `admin`
+  - Password: `a0gZ0iiXoX5DmwpI`
+  - (Throwaway credentials, created for grading this submission.)
+
+To test the bot: join the server above, then run `/status` or `/report <some text>` in any text channel. You should see: a reply from the bot, a mirrored message in `#mirror-log`, and a new row on the admin dashboard's command log.
