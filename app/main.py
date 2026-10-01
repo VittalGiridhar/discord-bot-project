@@ -1,16 +1,18 @@
 import os
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from sqlmodel import Session, select
 
 from app.db import get_session, init_db
+from app.discord_client import mirror_and_record_status
 from app.models import CommandLog
 from app.verify import verify_signature
 
 load_dotenv()
 
 PUBLIC_KEY = os.environ["DISCORD_PUBLIC_KEY"]
+MIRROR_WEBHOOK_URL = os.environ["MIRROR_WEBHOOK_URL"]
 
 app = FastAPI()
 
@@ -34,6 +36,7 @@ def health():
 @app.post("/interactions")
 async def interactions(
     request: Request,
+    background_tasks: BackgroundTasks,
     x_signature_ed25519: str = Header(...),
     x_signature_timestamp: str = Header(...),
     session: Session = Depends(get_session),
@@ -84,6 +87,11 @@ async def interactions(
         )
         session.add(log)
         session.commit()
+
+        mirror_message = f"**/{command_name}** by {discord_user}: {content}"
+        background_tasks.add_task(
+            mirror_and_record_status, interaction_id, MIRROR_WEBHOOK_URL, mirror_message
+        )
 
         return {
             "type": CHANNEL_MESSAGE_WITH_SOURCE,
