@@ -1,8 +1,11 @@
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from sqlmodel import Session, select
 
+from app.db import get_session, init_db
+from app.models import CommandLog
 from app.verify import verify_signature
 
 load_dotenv()
@@ -18,6 +21,11 @@ PONG = 1
 CHANNEL_MESSAGE_WITH_SOURCE = 4
 
 
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -28,6 +36,7 @@ async def interactions(
     request: Request,
     x_signature_ed25519: str = Header(...),
     x_signature_timestamp: str = Header(...),
+    session: Session = Depends(get_session),
 ):
     body = await request.body()
 
@@ -41,16 +50,40 @@ async def interactions(
         return {"type": PONG}
 
     if interaction_type == APPLICATION_COMMAND:
-        command_name = payload["data"]["name"]
+        interaction_id = payload["id"]
 
+        existing = session.exec(
+            select(CommandLog).where(CommandLog.interaction_id == interaction_id)
+        ).first()
+        if existing:
+            return {
+                "type": CHANNEL_MESSAGE_WITH_SOURCE,
+                "data": {"content": existing.action_taken},
+            }
+
+        command_name = payload["data"]["name"]
+        member = payload.get("member", {})
+        discord_user = member.get("user", {}).get("username", "unknown")
+
+        input_text = ""
         if command_name == "status":
             content = "Bot is up and running."
         elif command_name == "report":
             options = payload["data"].get("options", [])
-            text = next((o["value"] for o in options if o["name"] == "text"), "")
-            content = f"Report received: {text}"
+            input_text = next((o["value"] for o in options if o["name"] == "text"), "")
+            content = f"Report received: {input_text}"
         else:
             content = f"Unknown command: {command_name}"
+
+        log = CommandLog(
+            interaction_id=interaction_id,
+            command_name=command_name,
+            discord_user=discord_user,
+            input_text=input_text,
+            action_taken=content,
+        )
+        session.add(log)
+        session.commit()
 
         return {
             "type": CHANNEL_MESSAGE_WITH_SOURCE,
